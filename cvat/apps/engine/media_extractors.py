@@ -181,6 +181,60 @@ class PdfReader(ImageListReader):
             stop=stop,
         )
 
+
+def _normalize_image(img, min_percent = 0, max_percent = 99):
+    """
+    dicom の画像データを uint8 に変換
+    """
+    vmin = np.percentile(img, min_percent)
+    vmax = np.percentile(img, max_percent)
+    img = ((img - vmin) / (vmax - vmin))
+    img = img * 255
+    img = np.clip(img, 0, 255)
+    return img.astype(np.uint8)
+
+class DicomListReader(ImageListReader):
+    """
+    DICOM ファイルのリストをjpegに変換
+    """
+    def __init__(self, source_path, step=1, start=0, stop=None):
+        if not source_path:
+            raise Exception('No DICOM found')
+
+        if stop is None:
+            stop = len(source_path)
+        else:
+            stop = min(len(source_path), stop + 1)
+        step = max(step, 1)
+        assert stop > start
+
+        # PdfReader と同様に、jpeg に変換して保存する
+        import pydicom
+        self._tmp_dir = os.path.dirname(source_path[0])
+        paths = []
+        for one_path in sorted(source_path):
+            # 保存ファイル名
+            _basename = os.path.splitext(os.path.basename(one_path))[0]
+            name = '{}.jpeg'.format(_basename)
+            img_fp = os.path.join(self._tmp_dir, name)
+            paths.append(img_fp)
+
+            # dicom を jpeg として保存
+            dcm = pydicom.read_file(one_path)
+            img_2d = _normalize_image(dcm.pixel_array)
+            im = Image.fromarray(img_2d)
+            im.save(img_fp)
+
+            # もとのdicomを削除
+            os.remove(one_path)
+
+        super().__init__(
+            source_path=paths,
+            step=step,
+            start=start,
+            stop=stop,
+        )
+
 class ZipReader(ImageListReader):
     def __init__(self, source_path, step=1, start=0, stop=None):
         self._dimension = DimensionType.DIM_2D
@@ -496,6 +550,10 @@ def _is_pdf(path):
     mime = mimetypes.guess_type(path)
     return mime[0] == 'application/pdf'
 
+def _is_dicom(path):
+    mime = mimetypes.guess_type(path)
+    return mime[0] == 'application/dicom'
+
 def _is_zip(path):
     mime = mimetypes.guess_type(path)
     mime_type = mime[0]
@@ -541,6 +599,12 @@ MEDIA_TYPES = {
         'extractor': PdfReader,
         'mode': 'annotation',
         'unique': True,
+    },
+    'dicom': {
+        'has_mime_type': _is_dicom,
+        'extractor': DicomListReader,
+        'mode': 'annotation',
+        'unique': False,
     },
     'zip': {
         'has_mime_type': _is_zip,
