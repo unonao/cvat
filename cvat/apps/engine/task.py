@@ -67,7 +67,7 @@ def _copy_data_from_share(server_files, upload_dir):
                 os.makedirs(target_dir)
             shutil.copyfile(source_path, target_path)
 
-def _save_task_to_db(db_task):
+def _save_task_to_db(db_task, dicom_series_list = None):
     job = rq.get_current_job()
     job.meta['status'] = 'Task is being saved in database'
     job.save_meta()
@@ -88,22 +88,41 @@ def _save_task_to_db(db_task):
 
     segment_step -= db_task.overlap
 
-    for start_frame in range(0, db_task.data.size, segment_step):
-        stop_frame = min(start_frame + segment_size - 1, db_task.data.size - 1)
+    # dicom ならシリーズごとに分ける
+    is_dicom = dicom_series_list is not None
+    if is_dicom:
+        for dicom_series in dicom_series_list:
+            start_frame = dicom_series.start_frame
+            stop_frame = dicom_series.stop_frame
 
-        slogger.glob.info("New segment for task #{}: start_frame = {}, \
-            stop_frame = {}".format(db_task.id, start_frame, stop_frame))
+            slogger.glob.info("New segment for task #{}: start_frame = {}, \
+                stop_frame = {}".format(db_task.id, start_frame, stop_frame))
+            db_segment = models.Segment()
+            db_segment.task = db_task
+            db_segment.start_frame = start_frame
+            db_segment.stop_frame = stop_frame
+            db_segment.save()
 
-        db_segment = models.Segment()
-        db_segment.task = db_task
-        db_segment.start_frame = start_frame
-        db_segment.stop_frame = stop_frame
-        db_segment.save()
+            db_job = models.Job()
+            db_job.segment = db_segment
+            db_job.save()
+    else:
+        for start_frame in range(0, db_task.data.size, segment_step):
+            stop_frame = min(start_frame + segment_size - 1, db_task.data.size - 1)
 
-        db_job = models.Job()
-        db_job.segment = db_segment
-        db_job.save()
+            slogger.glob.info("New segment for task #{}: start_frame = {}, \
+                stop_frame = {}".format(db_task.id, start_frame, stop_frame))
 
+            # セグメントの保存（ジョブとして別れる）
+            db_segment = models.Segment()
+            db_segment.task = db_task
+            db_segment.start_frame = start_frame
+            db_segment.stop_frame = stop_frame
+            db_segment.save()
+
+            db_job = models.Job()
+            db_job.segment = db_segment
+            db_job.save()
     db_task.data.save()
     db_task.save()
 
@@ -455,4 +474,4 @@ def _create_thread(tid, data):
     preview.save(db_data.get_preview_path())
 
     slogger.glob.info("Found frames {} for Data #{}".format(db_data.size, db_data.id))
-    _save_task_to_db(db_task)
+    _save_task_to_db(db_task, extractor.get_series_list())
