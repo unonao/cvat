@@ -81,6 +81,9 @@ class IMediaReader(ABC):
     def frame_range(self):
         return range(self._start, self._stop, self._step)
 
+    def get_series_list(self):
+        return None
+
 class ImageListReader(IMediaReader):
     def __init__(self, source_path, step=1, start=0, stop=None):
         if not source_path:
@@ -121,8 +124,6 @@ class ImageListReader(IMediaReader):
         img = Image.open(self._source_path[i])
         return img.width, img.height
 
-    def get_series_list(self):
-        return None
 
 class DirectoryReader(ImageListReader):
     def __init__(self, source_path, step=1, start=0, stop=None):
