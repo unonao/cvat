@@ -81,6 +81,9 @@ class IMediaReader(ABC):
     def frame_range(self):
         return range(self._start, self._stop, self._step)
 
+    def get_series_list(self):
+        return None
+
 class ImageListReader(IMediaReader):
     def __init__(self, source_path, step=1, start=0, stop=None):
         if not source_path:
@@ -97,7 +100,7 @@ class ImageListReader(IMediaReader):
             source_path=source_path,
             step=step,
             start=start,
-            stop=stop,
+            stop=stop
         )
 
     def __iter__(self):
@@ -120,6 +123,7 @@ class ImageListReader(IMediaReader):
     def get_image_size(self, i):
         img = Image.open(self._source_path[i])
         return img.width, img.height
+
 
 class DirectoryReader(ImageListReader):
     def __init__(self, source_path, step=1, start=0, stop=None):
@@ -180,6 +184,102 @@ class PdfReader(ImageListReader):
             start=start,
             stop=stop,
         )
+
+
+def _normalize_image(img, min_percent = 0, max_percent = 99):
+    """
+    dicom の画像データを uint8 に変換
+    """
+    vmin = np.percentile(img, min_percent)
+    vmax = np.percentile(img, max_percent)
+    img = ((img - vmin) / (vmax - vmin))
+    img = img * 255
+    img = np.clip(img, 0, 255)
+    return img.astype(np.uint8)
+
+class DicomSeries:
+    def __init__(self, start_frame, description=""):
+        self.start_frame = start_frame
+        self.stop_frame = start_frame
+        self.description = description
+
+class DicomListReader(ImageListReader):
+    """
+    DICOM ファイルのリストをjpegに変換
+    1. シリーズごとに分ける
+    2. シリーズ内でソート。番号付けをする
+    3. すべてのファイルをjpで保存
+    """
+    def __init__(self, source_path, step=1, start=0, stop=None):
+        if not source_path:
+            raise Exception('No DICOM found')
+
+        if stop is None:
+            stop = len(source_path)
+        else:
+            stop = min(len(source_path), stop + 1)
+        step = max(step, 1)
+        assert stop > start
+
+        # PdfReader と同様に、jpeg に変換して保存する
+        import pydicom
+        series_dic = dict()
+
+        # series ごとに分ける
+        for one_path in sorted(source_path):
+            dcm = pydicom.read_file(one_path)
+            series_time = dcm.get("SeriesTime", "")
+            slice_location = dcm.get("SliceLocation", "")
+
+            if series_time == "":
+                series_time = "no_series"
+            if slice_location == "":
+                slice_location = one_path
+
+            if series_time not in series_dic:
+                location_dic = {slice_location:one_path}
+                series_dic[series_time] = location_dic
+            else:
+                series_dic[series_time][slice_location] = one_path
+
+        # SeriesTimeで昇順に並べかえた location_dic のリスト
+        location_dictionaries = [v for _, v in sorted(series_dic.items())]
+
+        # series ごとに、SliceLocationで並べ替え、dicom を保存する
+        self._tmp_dir = os.path.dirname(source_path[0])
+        paths = []
+        self._dicom_series_list = []
+        dicom_file_num = 0
+        for serise_num, location_dic in enumerate(location_dictionaries):
+            dicom_series = DicomSeries(dicom_file_num)
+            for slice_num, (_, one_slice_path) in enumerate(sorted(location_dic.items(), key=lambda x: x[0])): #keyのスライス番号でソートしてパスを取り出す
+                # 保存ファイル名
+                _basename = os.path.splitext(os.path.basename(one_slice_path))[0]
+                name ='{:05d}_{:04d}_{}.jpeg'.format(serise_num, slice_num, _basename)
+                img_fp = os.path.join(self._tmp_dir, name)
+                paths.append(img_fp)
+
+                # dicom を jpeg として保存
+                dcm = pydicom.read_file(one_slice_path)
+                img_2d = _normalize_image(dcm.pixel_array)
+                im = Image.fromarray(img_2d)
+                im.save(img_fp)
+                # もとのdicomを削除
+                os.remove(one_slice_path)
+                # 番号のインクリメント
+                dicom_file_num +=1
+            dicom_series.stop_frame = dicom_file_num - 1
+            self._dicom_series_list.append(dicom_series)
+
+        super().__init__(
+            source_path=paths,
+            step=step,
+            start=start,
+            stop=stop
+        )
+
+    def get_series_list(self):
+        return self._dicom_series_list
 
 class ZipReader(ImageListReader):
     def __init__(self, source_path, step=1, start=0, stop=None):
@@ -496,6 +596,10 @@ def _is_pdf(path):
     mime = mimetypes.guess_type(path)
     return mime[0] == 'application/pdf'
 
+def _is_dicom(path):
+    mime = mimetypes.guess_type(path)
+    return mime[0] == 'application/dicom'
+
 def _is_zip(path):
     mime = mimetypes.guess_type(path)
     mime_type = mime[0]
@@ -541,6 +645,12 @@ MEDIA_TYPES = {
         'extractor': PdfReader,
         'mode': 'annotation',
         'unique': True,
+    },
+    'dicom': {
+        'has_mime_type': _is_dicom,
+        'extractor': DicomListReader,
+        'mode': 'annotation',
+        'unique': False,
     },
     'zip': {
         'has_mime_type': _is_zip,
