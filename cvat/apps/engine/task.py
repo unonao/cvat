@@ -232,6 +232,11 @@ def _download_data(urls, upload_dir):
 
 @transaction.atomic
 def _create_thread(tid, data):
+
+    """
+    例
+    data: {'chunk_size': None, 'client_files': ['501_23.dcm', '501_24.dcm', '501_25.dcm', '701_1.dcm', '701_2.dcm'], 'compressed_chunk_type': 'imageset', 'copy_data': False, 'frame_filter': '', 'image_quality': 70, 'original_chunk_type': 'imageset', 'remote_files': [], 'server_files': [], 'size': 0, 'start_frame': 0, 'stop_frame': None, 'use_cache': True, 'use_zip_chunks': True}
+    """
     slogger.glob.info("create task #{}".format(tid))
 
     db_task = models.Task.objects.select_for_update().get(pk=tid)
@@ -247,6 +252,10 @@ def _create_thread(tid, data):
     meta_info_file = []
     media = _count_files(data, meta_info_file)
     media, task_mode = _validate_data(media, meta_info_file)
+    """
+    例
+    media: {'archive': [], 'dicom': ['501_23.dcm', '501_24.dcm', '501_25.dcm', '701_1.dcm', '701_2.dcm'], 'directory': [], 'image': [], 'pdf': [], 'video': [], 'zip': []}
+    """
     if meta_info_file:
         assert settings.USE_CACHE and db_data.storage_method == StorageMethodChoice.CACHE, \
             "File with meta information can be uploaded if 'Use cache' option is also selected"
