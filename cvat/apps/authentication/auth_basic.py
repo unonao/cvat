@@ -19,8 +19,11 @@ def create_user(sender, instance, created, **kwargs):
         if allauth_settings.EMAIL_REQUIRED:
             EmailAddress.objects.get_or_create(user=instance, email=instance.email, primary=True, verified=True)
 
-    if instance.is_active:
+    if instance.is_active and not instance.is_superuser:
         db_group = Group.objects.get(name=AUTH_ROLE.ANNOTATOR)
+        instance.groups.add(db_group)
+
+        db_group = Group.objects.get(name=AUTH_ROLE.OBSERVER)
         instance.groups.add(db_group)
 
 

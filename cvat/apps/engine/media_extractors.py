@@ -42,7 +42,7 @@ def delete_tmp_dir(tmp_dir):
 
 class IMediaReader(ABC):
     def __init__(self, source_path, step, start, stop):
-        self._source_path = sorted(source_path)
+        self._source_path = (source_path)
         self._step = step
         self._start = start
         self._stop = stop
@@ -125,67 +125,6 @@ class ImageListReader(IMediaReader):
         return img.width, img.height
 
 
-class DirectoryReader(ImageListReader):
-    def __init__(self, source_path, step=1, start=0, stop=None):
-        image_paths = []
-        for source in source_path:
-            for root, _, files in os.walk(source):
-                paths = [os.path.join(root, f) for f in files]
-                paths = filter(lambda x: get_mime(x) == 'image', paths)
-                image_paths.extend(paths)
-        super().__init__(
-            source_path=image_paths,
-            step=step,
-            start=start,
-            stop=stop,
-        )
-
-class ArchiveReader(DirectoryReader):
-    def __init__(self, source_path, step=1, start=0, stop=None):
-        self._archive_source = source_path[0]
-        extract_dir = source_path[1] if len(source_path) > 1 else os.path.dirname(source_path[0])
-        Archive(self._archive_source).extractall(extract_dir)
-        if extract_dir == os.path.dirname(source_path[0]):
-            os.remove(self._archive_source)
-        super().__init__(
-            source_path=[extract_dir],
-            step=step,
-            start=start,
-            stop=stop,
-        )
-
-class PdfReader(ImageListReader):
-    def __init__(self, source_path, step=1, start=0, stop=None):
-        if not source_path:
-            raise Exception('No PDF found')
-
-        self._pdf_source = source_path[0]
-
-        _basename = os.path.splitext(os.path.basename(self._pdf_source))[0]
-        _counter = itertools.count()
-        def _make_name():
-            for page_num in _counter:
-                yield '{}{:09d}.jpeg'.format(_basename, page_num)
-
-        from pdf2image import convert_from_path
-        self._tmp_dir = os.path.dirname(source_path[0])
-        os.makedirs(self._tmp_dir, exist_ok=True)
-
-        # Avoid OOM: https://github.com/openvinotoolkit/cvat/issues/940
-        paths = convert_from_path(self._pdf_source,
-            last_page=stop, paths_only=True,
-            output_folder=self._tmp_dir, fmt="jpeg", output_file=_make_name())
-
-        os.remove(source_path[0])
-
-        super().__init__(
-            source_path=paths,
-            step=step,
-            start=start,
-            stop=stop,
-        )
-
-
 def _normalize_image(img, min_percent = 0, max_percent = 99):
     """
     dicom の画像データを uint8 に変換
@@ -250,12 +189,13 @@ class DicomListReader(ImageListReader):
         paths = []
         self._dicom_series_list = []
         dicom_file_num = 0
-        for serise_num, location_dic in enumerate(location_dictionaries):
+        for location_dic in location_dictionaries:
             dicom_series = DicomSeries(dicom_file_num)
-            for slice_num, (_, one_slice_path) in enumerate(sorted(location_dic.items(), key=lambda x: x[0])): #keyのスライス番号でソートしてパスを取り出す
+            for _,one_slice_path in sorted(location_dic.items(), key=lambda x: x[0]): #keyのスライス番号でソートしてパスを取り出す
                 # 保存ファイル名
                 _basename = os.path.splitext(os.path.basename(one_slice_path))[0]
-                name ='{:05d}_{:04d}_{}.jpeg'.format(serise_num, slice_num, _basename)
+                #name ='{:05d}_{:04d}_{}.jpeg'.format(serise_num, slice_num, _basename)
+                name ='{}.jpeg'.format(_basename)
                 img_fp = os.path.join(self._tmp_dir, name)
                 paths.append(img_fp)
 
@@ -280,6 +220,68 @@ class DicomListReader(ImageListReader):
 
     def get_series_list(self):
         return self._dicom_series_list
+
+class DirectoryReader(DicomListReader):
+    def __init__(self, source_path, step=1, start=0, stop=None):
+        image_paths = []
+        for source in source_path:
+            for root, _, files in os.walk(source):
+                paths = [os.path.join(root, f) for f in files]
+                paths = filter(lambda x: get_mime(x) == 'dicom', paths)
+                image_paths.extend(paths)
+        super().__init__(
+            source_path=image_paths,
+            step=step,
+            start=start,
+            stop=stop,
+        )
+
+class ArchiveReader(DirectoryReader):
+    def __init__(self, source_path, step=1, start=0, stop=None):
+        self._archive_source = source_path[0]
+        extract_dir = source_path[1] if len(source_path) > 1 else os.path.dirname(source_path[0])
+        Archive(self._archive_source).extractall(extract_dir)
+        if extract_dir == os.path.dirname(source_path[0]):
+            os.remove(self._archive_source)
+        super().__init__(
+            source_path=[extract_dir],
+            step=step,
+            start=start,
+            stop=stop,
+        )
+
+class PdfReader(ImageListReader):
+    def __init__(self, source_path, step=1, start=0, stop=None):
+        if not source_path:
+            raise Exception('No PDF found')
+
+        self._pdf_source = source_path[0]
+
+        _basename = os.path.splitext(os.path.basename(self._pdf_source))[0]
+        _counter = itertools.count()
+        def _make_name():
+            for page_num in _counter:
+                yield '{}{:09d}.jpeg'.format(_basename, page_num)
+
+        from pdf2image import convert_from_path
+        self._tmp_dir = os.path.dirname(source_path[0])
+        os.makedirs(self._tmp_dir, exist_ok=True)
+
+        # Avoid OOM: https://github.com/openvinotoolkit/cvat/issues/940
+        paths = convert_from_path(self._pdf_source,
+            last_page=stop, paths_only=True,
+            output_folder=self._tmp_dir, fmt="jpeg", output_file=_make_name())
+
+        os.remove(source_path[0])
+
+        super().__init__(
+            source_path=paths,
+            step=step,
+            start=start,
+            stop=stop,
+        )
+
+
 
 class ZipReader(ImageListReader):
     def __init__(self, source_path, step=1, start=0, stop=None):
@@ -574,7 +576,7 @@ def _is_archive(path):
     mime = mimetypes.guess_type(path)
     mime_type = mime[0]
     encoding = mime[1]
-    supportedArchives = ['application/x-rar-compressed',
+    supportedArchives = ['application/zip', 'application/x-rar-compressed',
         'application/x-tar', 'application/x-7z-compressed', 'application/x-cpio',
         'gzip', 'bzip2']
     return mime_type in supportedArchives or encoding in supportedArchives
@@ -604,7 +606,7 @@ def _is_zip(path):
     mime = mimetypes.guess_type(path)
     mime_type = mime[0]
     encoding = mime[1]
-    supportedArchives = ['application/zip']
+    supportedArchives = [] #これを使いたいなら _is_archive から ['application/zip'] を持ってくる
     return mime_type in supportedArchives or encoding in supportedArchives
 
 # 'has_mime_type': function receives 1 argument - path to file.
@@ -652,7 +654,7 @@ MEDIA_TYPES = {
         'mode': 'annotation',
         'unique': False,
     },
-    'zip': {
+    'zip': { # zip のサポートは Archive でやるので無視。(_is_zip を少し変更しました)
         'has_mime_type': _is_zip,
         'extractor': ZipReader,
         'mode': 'annotation',
