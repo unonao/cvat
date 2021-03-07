@@ -23,10 +23,6 @@ def create_user(sender, instance, created, **kwargs):
         db_group = Group.objects.get(name=AUTH_ROLE.ANNOTATOR)
         instance.groups.add(db_group)
 
-        db_group = Group.objects.get(name=AUTH_ROLE.OBSERVER)
-        instance.groups.add(db_group)
-
-
     for group_name in settings.DJANGO_AUTH_DEFAULT_GROUPS:
         db_group = Group.objects.get(name=getattr(AUTH_ROLE, group_name))
         instance.groups.add(db_group)
