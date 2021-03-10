@@ -166,16 +166,16 @@ rules.add_perm('engine.role.annotator', has_annotator_role)
 rules.add_perm('engine.role.observer', has_observer_role)
 
 rules.add_perm('engine.project.create', has_admin_role)
-rules.add_perm('engine.project.access', has_admin_role | has_observer_role |
+rules.add_perm('engine.project.access', has_admin_role | has_observer_role | has_annotator_role |
     is_project_owner | is_project_annotator)
-rules.add_perm('engine.project.change', has_admin_role | is_project_owner |
+rules.add_perm('engine.project.change', has_admin_role | is_project_owner | has_annotator_role |
     is_project_assignee)
 rules.add_perm('engine.project.delete', has_admin_role | is_project_owner)
 
 rules.add_perm('engine.task.create', has_admin_role | has_annotator_role)
-rules.add_perm('engine.task.access', has_admin_role | has_observer_role |
+rules.add_perm('engine.task.access', has_admin_role | has_observer_role | has_annotator_role | has_user_role |
     is_task_owner | is_task_annotator | is_task_reviewer)
-rules.add_perm('engine.task.change', has_admin_role | is_task_owner |
+rules.add_perm('engine.task.change', has_admin_role | is_task_owner | has_annotator_role | has_user_role |
     is_task_assignee)
 rules.add_perm('engine.task.delete', has_admin_role | is_task_owner)
 
